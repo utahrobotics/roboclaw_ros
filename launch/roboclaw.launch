@@ -11,7 +11,7 @@
     <arg name="base_width" default="0.92"/>
     <arg name="linear_max_vel" default="2.0"/>
     <arg name="angular_max_vel" default="2.0"/>
-    <arg name="accel" default="100000"/> <!-- roboclaw default is 655360 -->
+    <arg name="accel" default="5"/> <!-- roboclaw default is 655360 -->
 
     <!-- <rosparam file="$(find roboclaw_ros)/config/control.yaml" command="load"/> -->
     <arg name="respawn" default="true" />

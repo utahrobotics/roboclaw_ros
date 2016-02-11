@@ -3,7 +3,7 @@ from __future__ import division
 from math import pi, cos, sin
 import diagnostic_msgs
 import diagnostic_updater
-from roboclaw_driver.roboclaw_driver import Roboclaw
+from roboclaw_driver import Roboclaw
 import rospy
 import tf
 from std_msgs.msg import Bool, Float32
@@ -22,8 +22,7 @@ def clip(val, minval, maxval):
     return max(min(val, maxval), minval)
 
 # diagnostics error msg
-ERRORS = {0x0000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal"),
-               0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
+ERRORS = {0x0000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal"), 0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
                0x0002: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 over current"),
                0x0004: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Emergency Stop"),
                0x0008: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature1"),
@@ -177,12 +176,12 @@ class Node(object):
         # open roboclaw device connection
         self.roboclaw = Roboclaw(self.dev, self.baudrate) 
         # set acceleration limits (default is 655360, we found 100000 to be decent)_
-        self.roboclaw.SetM1DefaultAccel(self.frontaddr, self.accel) 
-        self.roboclaw.SetM2DefaultAccel(self.frontaddr, self.accel)
-        self.roboclaw.SetM1DefaultAccel(self.backaddr, self.accel)
-        self.roboclaw.SetM2DefaultAccel(self.backaddr, self.accel)
-        self.roboclaw.SetM1DefaultAccel(self.diggeraddr, self.accel)
-        self.roboclaw.SetM2DefaultAccel(self.diggeraddr, self.accel)
+        #self.roboclaw.SetM1DefaultAccel(self.frontaddr, self.accel) 
+        #self.roboclaw.SetM2DefaultAccel(self.frontaddr, self.accel)
+        #self.roboclaw.SetM1DefaultAccel(self.backaddr, self.accel)
+        #self.roboclaw.SetM2DefaultAccel(self.backaddr, self.accel)
+        #self.roboclaw.SetM1DefaultAccel(self.diggeraddr, self.accel)
+        #self.roboclaw.SetM2DefaultAccel(self.diggeraddr, self.accel)
         # diagnostics
         self.updater = diagnostic_updater.Updater()
         self.updater.setHardwareID("Roboclaw")
@@ -237,7 +236,7 @@ class Node(object):
         self.digger_extended = False
 
         self.cmd_vel_sub = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=1)
-        self.digger_sub = rosp.Subscriber("/digger_spin/cmd", Float32, self.digger_spin_callback, queue_size=1)
+        self.digger_sub = rospy.Subscriber("/digger_spin/cmd", Float32, self.digger_spin_callback, queue_size=1)
         self.digger_extended_sub = rospy.Subscriber("/digger_extended", Bool, self.digger_extended_callback, queue_size=1)
 
         rospy.sleep(1) # wait for things to initialize
@@ -284,16 +283,19 @@ class Node(object):
             self.back_enc1, self.back_enc2 = None, None
             self.digger_current1, self.digger_current2 = None, None
 
-            print(self.roboclaw.ReadEncM1(self.diggeraddr))
-            print(self.roboclaw.ReadEncM2(self.diggeraddr))
+            #print(self.roboclaw.ReadEncM1(self.frontaddr))
+            #print(self.roboclaw.ReadEncM2(self.frontaddr))
+            #print(self.roboclaw.ReadEncM1(self.backaddr))
+            #print(self.roboclaw.ReadEncM2(self.backaddr))
 
             try:
+                pass
                 _, self.digger_current1, _ = self.roboclaw.ReadEncM1(self.diggeraddr)
                 _, self.digger_current2, _ = self.roboclaw.ReadEncM2(self.diggeraddr)
-                #_, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
-                #_, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
-                #_, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
-                #_, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
+                _, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
+                _, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
+                _, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
+                _, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
             except (ValueError,OSError) as e:
                 rospy.logwarn("Error when trying to read encoder value: %s", e)
 
@@ -328,21 +330,23 @@ class Node(object):
     def _send_digger_cmd(self):
         """Sends the current digger command to the Roboclaw devices over Serial"""
 
+        # TODO: test this code more thoroughly 
+
         # If the linear actuator is not extended, or we haven't heard from it in a while,
         # set the digger speed to 0
-        if self.digger_extended and ( (rospy.Time.now() - self.last_digger_extended_time).to_sec < self.timeout):
-            self.curr_digger_cmd = self.curr_digger_cmd
-        else:
-            self.curr_digger_cmd = 0
+        #if not self.digger_extended or ( (rospy.Time.now() - self.last_digger_extended_time).to_sec > self.timeout):
+        #    self.curr_digger_cmd = 0
+        #else:
+        #    self.curr_digger_cmd = self.curr_digger_cmd
 
         # TODO: need to check the directionality of these when we hook up everything
         try:
             if self.curr_digger_cmd >= 0:
                 self.roboclaw.ForwardM1(self.diggeraddr, self.curr_digger_cmd)
-                self.roboclaw.ForwardM2(self.diggeraddr, self.curr_digger_cmd)
+                self.roboclaw.BackwardM2(self.diggeraddr, self.curr_digger_cmd)
             else:
                 self.roboclaw.BackwardM1(self.diggeraddr, -self.curr_digger_cmd)
-                self.roboclaw.BackwardM2(self.diggeraddr, -self.curr_digger_cmd)
+                self.roboclaw.ForwardM2(self.diggeraddr, -self.curr_digger_cmd)
         except OSError as e:
             rospy.logwarn("Roboclaw OSError: %d", e.errno)
             rospy.logdebug(e)
@@ -388,11 +392,11 @@ class Node(object):
                 self.roboclaw.BackwardM1(self.backaddr, -self.curr_drive1_cmd)
 
             if self.curr_drive2_cmd >= 0:
-                self.roboclaw.ForwardM2(self.frontaddr, self.curr_drive2_cmd)
-                self.roboclaw.ForwardM2(self.backaddr, self.curr_drive2_cmd)
+                self.roboclaw.BackwardM2(self.frontaddr, self.curr_drive2_cmd)
+                self.roboclaw.BackwardM2(self.backaddr, self.curr_drive2_cmd)
             else:
-                self.roboclaw.BackwardM2(self.frontaddr, -self.curr_drive2_cmd)
-                self.roboclaw.BackwardM2(self.backaddr, -self.curr_drive2_cmd)
+                self.roboclaw.ForwardM2(self.frontaddr, -self.curr_drive2_cmd)
+                self.roboclaw.ForwardM2(self.backaddr, -self.curr_drive2_cmd)
         except OSError as e:
             rospy.logwarn("Roboclaw OSError: %d", e.errno)
             rospy.logdebug(e)
