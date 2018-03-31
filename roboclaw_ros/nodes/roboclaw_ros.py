@@ -136,8 +136,8 @@ class Node:
                        0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
                        0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
 
-        #rospy.init_node("roboclaw_node")
-        rospy.init_node("roboclaw_node", log_level=rospy.DEBUG)
+        #rospy.init_node("roboclaw_ros")
+        rospy.init_node("roboclaw_ros", log_level=rospy.DEBUG)
         rospy.on_shutdown(self.shutdown)
         rospy.loginfo("Connecting to roboclaw")
         self.dev = rospy.get_param("~dev")

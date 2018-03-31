@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package>
-  <name>roboclaw_node</name>
+  <name>roboclaw_ros</name>
   <version>0.0.1</version>
   <description>Node for roboclaw</description>
 
@@ -15,7 +15,7 @@
   <!-- Url tags are optional, but mutiple are allowed, one per tag -->
   <!-- Optional attribute type can be: website, bugtracker, or repository -->
   <!-- Example: -->
-  <!-- <url type="website">http://wiki.ros.org/roboclaw_node</url> -->
+  <!-- <url type="website">http://wiki.ros.org/roboclaw_ros</url> -->
 
 
   <!-- Author tags are optional, mutiple are allowed, one per tag -->

@@ -18,7 +18,7 @@ git clone https://github.com/utahrobotics/roboclaw_ros.git
 cd <workspace>
 catkin_make
 source devel/setup.bash
-roslaunch roboclaw_node roboclaw.launch
+roslaunch roboclaw_ros roboclaw.launch
 ```
 
 ## Parameters

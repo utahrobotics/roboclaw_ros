@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(roboclaw_node)
+project(roboclaw_ros)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -104,7 +104,7 @@ catkin_python_setup()
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
 #  INCLUDE_DIRS include
-#  LIBRARIES roboclaw_node
+#  LIBRARIES roboclaw_ros
 #  CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs tf
 #  DEPENDS system_lib
 )
@@ -121,24 +121,24 @@ include_directories(
 )
 
 ## Declare a C++ library
-# add_library(roboclaw_node
-#   src/${PROJECT_NAME}/roboclaw_node.cpp
+# add_library(roboclaw_ros
+#   src/${PROJECT_NAME}/roboclaw_ros.cpp
 # )
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
 ## either from message generation or dynamic reconfigure
-# add_dependencies(roboclaw_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(roboclaw_ros ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-# add_executable(roboclaw_node_node src/roboclaw_node_node.cpp)
+# add_executable(roboclaw_ros_node src/roboclaw_ros_node.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-# add_dependencies(roboclaw_node_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(roboclaw_ros_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(roboclaw_node_node
+# target_link_libraries(roboclaw_ros_node
 #   ${catkin_LIBRARIES}
 # )
 
@@ -157,7 +157,7 @@ include_directories(
 # )
 
 ## Mark executables and/or libraries for installation
-# install(TARGETS roboclaw_node roboclaw_node_node
+# install(TARGETS roboclaw_ros roboclaw_ros_node
 #   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 #   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
@@ -182,7 +182,7 @@ include_directories(
 #############
 
 ## Add gtest based cpp test target and link libraries
-# catkin_add_gtest(${PROJECT_NAME}-test test/test_roboclaw_node.cpp)
+# catkin_add_gtest(${PROJECT_NAME}-test test/test_roboclaw_ros.cpp)
 # if(TARGET ${PROJECT_NAME}-test)
 #   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
 # endif()

@@ -7,7 +7,7 @@ sudo udevadm trigger
 echo ""
 echo "unplug and replug the device"
 echo ""
-echo "test with:"
+echo "test with (it should not show an error):"
 echo "ls /dev/roboclaw"
 echo ""
 
