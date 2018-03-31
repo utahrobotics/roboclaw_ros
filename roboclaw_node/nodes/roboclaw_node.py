@@ -12,7 +12,7 @@ import threading
 from serial import SerialException
 
 __author__ = "bwbazemore@uga.edu (Brad Bazemore)"
-__maintainer__ "mattwilsonmbw@gmail.com (Matthew Wilson)"
+__maintainer__ = "mattwilsonmbw@gmail.com (Matthew Wilson)"
 
 class EncoderOdom:
     def __init__(self, ticks_per_meter, base_width):
@@ -66,8 +66,8 @@ class EncoderOdom:
         else:
             vel_x = dist / d_time
             vel_theta = d_theta / d_time
-        #rospy.loginfo("enocder left: %d", self.last_enc_left)
-        #rospy.loginfo("enocder right: %d", self.last_enc_right)
+        rospy.logdebug("enocder left: %d", self.last_enc_left)
+        rospy.logdebug("enocder right: %d", self.last_enc_right)
         #rospy.loginfo(vel_x)
         #rospy.loginfo(vel_theta)
         return vel_x, vel_theta
@@ -136,8 +136,8 @@ class Node:
                        0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
                        0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
 
-        rospy.init_node("roboclaw_node")
-        #rospy.init_node("roboclaw_node", log_level=rospy.DEBUG)
+        #rospy.init_node("roboclaw_node")
+        rospy.init_node("roboclaw_node", log_level=rospy.DEBUG)
         rospy.on_shutdown(self.shutdown)
         rospy.loginfo("Connecting to roboclaw")
         self.dev = rospy.get_param("~dev")
@@ -225,8 +225,10 @@ class Node:
                 # TODO need find solution to the OSError11 looks like sync problem with serial status1, enc1, crc1 = None, None, None
                 status2, enc1, enc2, crc2 = None, None, None, None
 
+                # TODO: incorporate both front and back encoders
+
                 try:
-                    status1, enc1, crc1 = self.roboclaw.ReadEncM1(self.frontaddr)
+                    status1, enc1, crc1 = self.roboclaw.ReadEncM1(self.backaddr)
                 except ValueError:
                     pass
                 except OSError as e:
@@ -234,7 +236,7 @@ class Node:
                     rospy.logdebug(e)
 
                 try:
-                    status2, enc2, crc2 = self.roboclaw.ReadEncM2(self.frontaddr)
+                    status2, enc2, crc2 = self.roboclaw.ReadEncM2(self.backaddr)
                 except ValueError:
                     pass
                 except OSError as e:
