@@ -1,9 +1,11 @@
 <?xml version="1.0"?>
 <launch>
-    <arg name="dev" default="/dev/roboclaw"/>
+    <arg name="dev" default="/dev/ROBOCLAW"/>
     <arg name="baudrate" default="115200"/>
+    <arg name="timeout" default="1.0"/>
     <arg name="frontaddr" default="128"/>
     <arg name="backaddr" default="129"/>
+    <arg name="digger" default="130"/>
     <arg name="max_speed" default="2.0"/>
     <arg name="ticks_per_meter" default="104000"/>
     <arg name="base_width" default="0.92"/>

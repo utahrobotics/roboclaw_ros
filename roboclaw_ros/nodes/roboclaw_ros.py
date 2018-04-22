@@ -6,6 +6,7 @@ import diagnostic_updater
 from roboclaw_driver.roboclaw_driver import Roboclaw
 import rospy
 import tf
+from standard_msgs.msg import Float64
 from geometry_msgs.msg import Quaternion, Twist
 from nav_msgs.msg import Odometry
 import threading
@@ -14,7 +15,32 @@ from serial import SerialException
 __author__ = "bwbazemore@uga.edu (Brad Bazemore)"
 __maintainer__ = "mattwilsonmbw@gmail.com (Matthew Wilson)"
 
-class EncoderOdom:
+# TODO: how to read analog (current sensor) value
+
+def clip(val, minval, maxval):
+    """Clip commands to within bounds e.g., (-127,127)"""
+    return max(min(val, maxval), minval)
+
+# diagnostics error msg
+ERRORS = {0x0000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal"),
+               0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
+               0x0002: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 over current"),
+               0x0004: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Emergency Stop"),
+               0x0008: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature1"),
+               0x0010: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature2"),
+               0x0020: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Main batt voltage high"),
+               0x0040: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage high"),
+               0x0080: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage low"),
+               0x0100: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 driver fault"),
+               0x0200: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 driver fault"),
+               0x0400: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage high"),
+               0x0800: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage low"),
+               0x1000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature1"),
+               0x2000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature2"),
+               0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
+               0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
+
+class EncoderOdom(object):
     def __init__(self, ticks_per_meter, base_width):
         self.TICKS_PER_METER = ticks_per_meter
         self.BASE_WIDTH = base_width
@@ -34,22 +60,27 @@ class EncoderOdom:
             angle += 2.0 * pi
         return angle
 
-    def update(self, enc_left, enc_right):
+    def update(self, front_left, front_right, back_left, back_right):
+        """Compute vel_x and vel_theta based on new encoder measurements"""
+        # TODO: could probably add something more complicated here to check that both motors are spinning
+        # like if we notice that only one of the wheels is spinning, it is more likely that the robot is slipping.
+        # if we could account for this, we could probably get more accurate localization. for now we just:
+        # average front and back encoder values 
+        enc_left = (front_left + back_left) / 2
+        enc_right = (front_right + back_right) / 2
+        # calculate diff from last reading
         left_ticks = -(enc_left - self.last_enc_left)
         right_ticks = enc_right - self.last_enc_right
         self.last_enc_left = enc_left
         self.last_enc_right = enc_right
-
+        # calculate distance moved by each side
         dist_left = left_ticks / self.TICKS_PER_METER
         dist_right = right_ticks / self.TICKS_PER_METER
-        #rospy.loginfo(self.TICKS_PER_METER)
+        # average the distances for total delta
         dist = (dist_right + dist_left) / 2.0
-        current_time = rospy.Time.now()
-        d_time = (current_time - self.last_enc_time).to_sec()
-        self.last_enc_time = current_time
 
-        # TODO find better way to determine if going straight, this means slight deviation is accounted for
-        if left_ticks == right_ticks:
+        # check for numerical stability (if the dists are almost the same, we are going straight)
+        if abs(dist_left - dist_right) < 1e-9:
             d_theta = 0.0
             self.cur_x += dist * cos(self.cur_theta)
             self.cur_y += dist * sin(self.cur_theta)
@@ -60,27 +91,35 @@ class EncoderOdom:
             self.cur_y -= r * (cos(d_theta + self.cur_theta) - cos(self.cur_theta))
             self.cur_theta = self.normalize_angle(self.cur_theta + d_theta)
 
-        if abs(d_time) < 0.000001:
+        current_time = rospy.Time.now()
+        d_time = (current_time - self.last_enc_time).to_sec()
+        self.last_enc_time = current_time
+
+        # check for numerical stability 
+        if abs(d_time) < 1e-9:
             vel_x = 0.0
             vel_theta = 0.0
         else:
             vel_x = dist / d_time
             vel_theta = d_theta / d_time
+
         rospy.logdebug("enocder left: %d", self.last_enc_left)
         rospy.logdebug("enocder right: %d", self.last_enc_right)
-        #rospy.loginfo(vel_x)
-        #rospy.loginfo(vel_theta)
+        rospy.logdebug("vel_x: %d", vel_x)
+        rospy.logdebug("vel_x: %d", vel_theta)
         return vel_x, vel_theta
 
-    def update_publish(self, enc_left, enc_right):
-        vel_x, vel_theta = self.update(enc_left, enc_right)
+    def update_publish(self, front1, front2, back1, back2):
+        """update velocity values from encoder measurement and publish odom message"""
+        vel_x, vel_theta = self.update(front1, front2, back1, back2)
         self.publish_odom(self.cur_x, self.cur_y, self.cur_theta, vel_x, vel_theta)
 
     def publish_odom(self, cur_x, cur_y, cur_theta, vx, vth):
+        """Publish odometry message"""
         quat = tf.transformations.quaternion_from_euler(0, 0, cur_theta)
         current_time = rospy.Time.now()
 
-        # TODO: why was this commented out? Do we not need it?
+        # TODO: why was this commented out?
         #br = tf.TransformBroadcaster()
         #br.sendTransform((cur_x, cur_y, 0),
         #                 tf.transformations.quaternion_from_euler(0, 0, cur_theta),
@@ -113,28 +152,16 @@ class EncoderOdom:
 
         self.odom_pub.publish(odom)
 
-
-class Node:
+class Node(object):
     """ Class for running roboclaw ros node for 2 motors in a diff drive setup"""
     def __init__(self):
-        self.lock = threading.Lock()
-        self.ERRORS = {0x0000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal"),
-                       0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
-                       0x0002: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 over current"),
-                       0x0004: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Emergency Stop"),
-                       0x0008: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature1"),
-                       0x0010: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature2"),
-                       0x0020: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Main batt voltage high"),
-                       0x0040: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage high"),
-                       0x0080: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage low"),
-                       0x0100: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 driver fault"),
-                       0x0200: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 driver fault"),
-                       0x0400: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage high"),
-                       0x0800: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage low"),
-                       0x1000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature1"),
-                       0x2000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature2"),
-                       0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
-                       0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
+        """init variables and ros stuff"""
+        self._has_showed_message = False # flag to not spam logging
+        self._have_read_vitals = False # flag to check when vitals have been read
+
+        # ints in [-127,127] that get sent to roboclaw to drive forward or backward 
+        self.curr_drive1_cmd = 0 
+        self.curr_drive2_cmd = 0
 
         #rospy.init_node("roboclaw_ros")
         rospy.init_node("roboclaw_ros", log_level=rospy.DEBUG)
@@ -144,6 +171,7 @@ class Node:
         self.baudrate = int(rospy.get_param("~baudrate"))
         self.frontaddr = int(rospy.get_param("~frontaddr"))
         self.backaddr = int(rospy.get_param("~backaddr"))
+        self.diggeraddr = int(rospy.get_param("~diggeraddr"))
         self.accel = int(rospy.get_param("~accel"))
 
         # open roboclaw device connection
@@ -153,10 +181,12 @@ class Node:
         self.roboclaw.SetM2DefaultAccel(self.frontaddr, self.accel)
         self.roboclaw.SetM1DefaultAccel(self.backaddr, self.accel)
         self.roboclaw.SetM2DefaultAccel(self.backaddr, self.accel)
+        self.roboclaw.SetM1DefaultAccel(self.diggeraddr, self.accel)
+        self.roboclaw.SetM2DefaultAccel(self.diggeraddr, self.accel)
         # diagnostics
         self.updater = diagnostic_updater.Updater()
         self.updater.setHardwareID("Roboclaw")
-        self.updater.add(diagnostic_updater.FunctionDiagnosticTask("Vitals", self.check_vitals))
+        self.updater.add(diagnostic_updater.FunctionDiagnosticTask("Vitals", self.pub_vitals))
 
         try:
             version = self.roboclaw.ReadVersion(self.frontaddr)
@@ -170,7 +200,15 @@ class Node:
             version = self.roboclaw.ReadVersion(self.backaddr)
             rospy.logdebug("Back Version "+ str(repr(version[1])))
         except Exception as e:
-            rospy.logwarn("Problem getting rear roboclaw version")
+            rospy.logwarn("Problem getting back roboclaw version")
+            rospy.logdebug(e)
+            raise SerialException("Connectivity issue. Could not read version")
+
+        try:
+            version = self.roboclaw.ReadVersion(self.diggeraddr)
+            rospy.logdebug("Digger Version "+ str(repr(version[1])))
+        except Exception as e:
+            rospy.logwarn("Problem getting digger roboclaw version")
             rospy.logdebug(e)
             raise SerialException("Connectivity issue. Could not read version")
 
@@ -183,12 +221,14 @@ class Node:
         self.ANGULAR_MAX_SPEED = float(rospy.get_param("~angular/z/max_velocity"))
         self.TICKS_PER_METER = float(rospy.get_param("~ticks_per_meter"))
         self.BASE_WIDTH = float(rospy.get_param("~base_width"))
+        self.TIMEOUT = float(rospy.get_param("~timeout"))
 
         self.encodm = EncoderOdom(self.TICKS_PER_METER, self.BASE_WIDTH)
-        self.last_set_speed_time = rospy.get_rostime()
+        self.last_vel_cmd_time = rospy.Time.now()
+        self.last_digger_cmd_time = rospy.Time.now()
 
-        self.sub = rospy.Subscriber("cmd_vel", Twist, self.cmd_vel_callback, queue_size=5)
-        self.TIMEOUT = 2
+        self.cmd_vel_sub = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=1)
+        self.digger_sub = rospy.Subscriber("/cmd_digger", Float64, self.cmd_digger_callback, queue_size=1)
 
         rospy.sleep(1) # wait for things to initialize
 
@@ -199,154 +239,193 @@ class Node:
         rospy.logdebug("max_speed %f", self.LINEAR_MAX_SPEED)
         rospy.logdebug("ticks_per_meter %f", self.TICKS_PER_METER)
         rospy.logdebug("base_width %f", self.BASE_WIDTH)
+        rospy.logdebug("timeout %f", self.TIMEOUT)
 
     def run(self):
         """Run the main ros loop"""
-        self._has_showed_message = False # flag to not spam logging
         rospy.loginfo("Starting motor drive")
+
         r_time = rospy.Rate(30)
         while not rospy.is_shutdown():
-            with self.lock:
-                if (rospy.get_rostime() - self.last_set_speed_time).to_sec() > self.TIMEOUT:
-                    try:
-                        self.roboclaw.ForwardM1(self.frontaddr, 0)
-                        self.roboclaw.ForwardM2(self.frontaddr, 0)
-                        self.roboclaw.ForwardM1(self.backaddr, 0)
-                        self.roboclaw.ForwardM2(self.backaddr, 0)
-                    except OSError as e:
-                        rospy.logfatal("COULD NOT STOP MOTORS!")
-                        rospy.logdebug(e)
-                    if (not self._has_showed_message):
-                        rospy.loginfo("Did not get command for 1 second, stopping")
-                        self._has_showed_message = True
-                else:
-                    self._has_showed_message = False
+            # do watchdog checks to shut down motors if we haven't heard anything in awhile
+            if (rospy.Time.now() - self.last_vel_cmd_time).to_sec() > self.TIMEOUT:
+                self.curr_drive1_cmd = 0
+                self.curr_drive2_cmd = 0
+                if (not self._has_showed_message):
+                    rospy.loginfo("Did not get drive command for %d second, stopping", self.TIMEOUT)
+                    self._has_showed_message = True
+            else:
+                self._has_showed_message = False
+            if (rospy.Time.now() - self.last_digger_cmd_time).to_sec() > self.TIMEOUT:
+                self.curr_digger_cmd = 0
+                if (not self._has_showed_message):
+                    rospy.loginfo("Did not get digger command for %d second, stopping", self.TIMEOUT)
+                    self._has_showed_message = True
+            else:
+                self._has_showed_message = False
 
-                # TODO need find solution to the OSError11 looks like sync problem with serial status1, enc1, crc1 = None, None, None
-                status2, enc1, enc2, crc2 = None, None, None, None
+            # send actual commands to the devices (the values to send are generally set in sub callbacks)
+            self._send_drive_cmd() 
+            self._send_digger_cmd()
 
-                # TODO: incorporate both front and back encoders
-
-                try:
-                    status1, enc1, crc1 = self.roboclaw.ReadEncM1(self.backaddr)
-                except ValueError:
-                    pass
-                except OSError as e:
-                    rospy.logwarn("ReadEncM1 OSError: %d", e.errno)
-                    rospy.logdebug(e)
-
-                try:
-                    status2, enc2, crc2 = self.roboclaw.ReadEncM2(self.backaddr)
-                except ValueError:
-                    pass
-                except OSError as e:
-                    rospy.logwarn("ReadEncM2 OSError: %d", e.errno)
-                    rospy.logdebug(e)
-
-                if ((enc1 is not None) and (enc2 is not None)):
-                    rospy.logdebug(" Encoders %d %d" % (enc1, enc2))
-                    self.encodm.update_publish(enc1, enc2)
-                self.updater.update()
-            r_time.sleep()
-
-    def cmd_vel_callback(self, twist):
-        with self.lock:
-            """Command the motors based on the incoming twist message"""
-            now_time = rospy.get_rostime()
-            dt = (now_time - self.last_set_speed_time).to_sec()
-            self.last_set_speed_time = now_time
-
-            rospy.logdebug("Twist: -Linear X: %d    -Angular Z: %d", twist.linear.x, twist.angular.z)
-            linear_x = -twist.linear.x
-            angular_z = twist.angular.z
-
-            if linear_x > self.LINEAR_MAX_SPEED:
-                linear_x = self.LINEAR_MAX_SPEED
-            elif linear_x < -self.LINEAR_MAX_SPEED:
-                linear_x = -self.LINEAR_MAX_SPEED
-
-            # Take linear x and angular z values and compute command
-            motor1_command = linear_x/self.LINEAR_MAX_SPEED + angular_z/self.ANGULAR_MAX_SPEED
-            motor2_command = linear_x/self.LINEAR_MAX_SPEED - angular_z/self.ANGULAR_MAX_SPEED
-
-            # Scale to motor pwm
-            motor1_command = int(motor1_command * 127)
-            motor2_command = int(motor2_command * 127)
-
-            # Clip commands to within bounds (-127,127)
-            motor1_command =  int(max(-127, min(127, motor1_command)))
-            motor2_command =  int(max(-127, min(127, motor2_command)))
-
-            rospy.logdebug("motor1 command = %d",int(motor1_command))
-            rospy.logdebug("motor2 command = %d",int(motor2_command))
+            # read encoder data and publish odom
+            self.front_enc1, self.front_enc2 = None, None
+            self.back_enc1, self.back_enc2 = None, None
 
             try:
-                if motor1_command >= 0:
-                    self.roboclaw.ForwardM1(self.frontaddr, motor1_command)
-                    self.roboclaw.ForwardM1(self.backaddr, motor1_command)
-                else:
-                    self.roboclaw.BackwardM1(self.frontaddr, -motor1_command)
-                    self.roboclaw.BackwardM1(self.backaddr, -motor1_command)
-
-                if motor2_command >= 0:
-                    self.roboclaw.ForwardM2(self.frontaddr, motor2_command)
-                    self.roboclaw.ForwardM2(self.backaddr, motor2_command)
-                else:
-                    self.roboclaw.BackwardM2(self.frontaddr, -motor2_command)
-                    self.roboclaw.BackwardM2(self.backaddr, -motor2_command)
-
+                _, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
+                _, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
+                _, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
+                _, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
             except OSError as e:
-                rospy.logwarn("Roboclaw OSError: %d", e.errno)
+                rospy.logwarn("ReadEnc OSError: %d", e.errno)
                 rospy.logdebug(e)
+            if self.front_enc1 is not None:
+                rospy.logdebug("Front Encoders %d %d" % (self.front_enc1, self.front_enc2))
+                rospy.logdebug("Back Encoders %d %d" % (self.back_enc1, self.back_enc2))
+                self.encodm.update_publish(self.front_enc1, self.front_enc2, self.back_enc1, self.back_enc2)
+
+            # publish diagnostics
+            self._read_vitals()
+            self.updater.update()
+
+            r_time.sleep()
+
+    def cmd_digger_callback(self, cmd):
+        """Set digger command based on the float message in range (-1, 1)"""
+        self.last_digger_cmd_time = rospy.Time.now()
+        rospy.logdebug("Digger message: %d", cmd.data)
+        # Scale to motor pwm and clip
+        motor_cmd = int(cmd.data * 127)
+        motor_cmd = clip(motor_cmd, -127, 127)
+        self.curr_digger_cmd = motor_cmd
+
+    def _send_digger_cmd(self):
+        """Sends the current digger command to the Roboclaw devices over Serial"""
+        try:
+            if self.curr_digger_cmd >= 0:
+                self.roboclaw.ForwardM1(self.diggeraddr, self.curr_digger_cmd)
+            else:
+                self.roboclaw.BackwardM1(self.diggeraddr, -self.curr_digger_cmd)
+        except OSError as e:
+            rospy.logwarn("Roboclaw OSError: %d", e.errno)
+            rospy.logdebug(e)
 
 
+    def cmd_vel_callback(self, twist):
+        """Set motor command based on the incoming twist message"""
+        self.last_vel_cmd_time = rospy.Time.now()
 
-    def check_vitals(self, stat):
+        rospy.logdebug("Twist: -Linear X: %d    -Angular Z: %d", twist.linear.x, twist.angular.z)
+        linear_x = -twist.linear.x
+        angular_z = twist.angular.z
+
+        if linear_x > self.LINEAR_MAX_SPEED:
+            linear_x = self.LINEAR_MAX_SPEED
+        elif linear_x < -self.LINEAR_MAX_SPEED:
+            linear_x = -self.LINEAR_MAX_SPEED
+
+        # Take linear x and angular z values and compute command
+        drive1_cmd = linear_x/self.LINEAR_MAX_SPEED + angular_z/self.ANGULAR_MAX_SPEED
+        drive2_cmd = linear_x/self.LINEAR_MAX_SPEED - angular_z/self.ANGULAR_MAX_SPEED
+
+        # Scale to motor pwm
+        drive1_cmd = int(drive1_cmd * 127)
+        drive2_cmd = int(drive2_cmd * 127)
+        # Clip to command bounds
+        drive1_cmd = clip(drive1_cmd, -127, 127)
+        drive2_cmd = clip(drive2_cmd, -127, 127)
+        # update the current commands
+        self.curr_drive1_cmd = drive1_cmd
+        self.curr_drive2_cmd = drive2_cmd
+        rospy.logdebug("drive1 command = %d", self.curr_drive1_cmd)
+        rospy.logdebug("drive2 command = %d", self.curr_drive2_cmd)
+
+    def _send_drive_cmd(self):
+        """Sends the current motor commands to the Roboclaw devices over Serial"""
+        try:
+            if self.curr_drive1_cmd >= 0:
+                self.roboclaw.ForwardM1(self.frontaddr, self.curr_drive1_cmd)
+                self.roboclaw.ForwardM1(self.backaddr, self.curr_drive1_cmd)
+            else:
+                self.roboclaw.BackwardM1(self.frontaddr, -self.curr_drive1_cmd)
+                self.roboclaw.BackwardM1(self.backaddr, -self.curr_drive1_cmd)
+
+            if self.curr_drive2_cmd >= 0:
+                self.roboclaw.ForwardM2(self.frontaddr, self.curr_drive2_cmd)
+                self.roboclaw.ForwardM2(self.backaddr, self.curr_drive2_cmd)
+            else:
+                self.roboclaw.BackwardM2(self.frontaddr, -self.curr_drive2_cmd)
+                self.roboclaw.BackwardM2(self.backaddr, -self.curr_drive2_cmd)
+        except OSError as e:
+            rospy.logwarn("Roboclaw OSError: %d", e.errno)
+            rospy.logdebug(e)
+
+
+    def _read_vitals(self):
         """Check battery voltage and temperatures from roboclaw"""
         try:
             statusfront = self.roboclaw.ReadError(self.frontaddr)[1]
-            statusrear = self.roboclaw.ReadError(self.backaddr)[1]
+            statusback = self.roboclaw.ReadError(self.backaddr)[1]
+            statusdigger = self.roboclaw.ReadError(self.diggeraddr)[1]
         except OSError as e:
             rospy.logwarn("Diagnostics OSError: %d", e.errno)
             rospy.logdebug(e)
             return
-        statefront, messagefront = self.ERRORS[statusfront]
-        staterear, messagerear = self.ERRORS[statusfront]
-        stat.summary(statefront, messagefront)
-        stat.summary(staterear, messagerear)
+
+        self.statefront,  self.messagefront = ERRORS[statusfront]
+        self.stateback,   self.messageback = ERRORS[statusback]
+        self.statedigger, self.messagedigger = ERRORS[statusdigger]
         try:
-            stat.add("Front Main Batt V:", float(self.roboclaw.ReadMainBatteryVoltage(self.frontaddr)[1] / 10))
-            stat.add("Front Logic Batt V:", float(self.roboclaw.ReadLogicBatteryVoltage(self.frontaddr)[1] / 10))
-            stat.add("Front Temp1 C:", float(self.roboclaw.ReadTemp(self.frontaddr)[1] / 10))
-            stat.add("Front Temp2 C:", float(self.roboclaw.ReadTemp2(self.frontaddr)[1] / 10))
-
-            front_currents = self.roboclaw.ReadCurrents(self.frontaddr)
-            stat.add("Front Left Current:", float(front_currents[1] / 100))
-            stat.add("Front Right Current:", float(front_currents[2] / 100))
-
-            back_currents = self.roboclaw.ReadCurrents(self.backaddr)
-            stat.add("Back Left Current:", float(back_currents[1] / 100))
-            stat.add("Back Right Current:", float(back_currents[2] / 100))
-
-            stat.add("Back Main Batt V:", float(self.roboclaw.ReadMainBatteryVoltage(self.backaddr)[1] / 10))
-            stat.add("Back Logic Batt V:", float(self.roboclaw.ReadLogicBatteryVoltage(self.backaddr)[1] / 10))
-            stat.add("Back Temp1 C:", float(self.roboclaw.ReadTemp(self.backaddr)[1] / 10))
-            stat.add("Back Temp2 C:", float(self.roboclaw.ReadTemp2(self.backaddr)[1] / 10))
+            # read main and logic voltages
+            self.front_voltage = float(self.roboclaw.ReadMainBatteryVoltage(self.frontaddr)[1] / 10)
+            self.front_logic = float(self.roboclaw.ReadLogicBatteryVoltage(self.frontaddr)[1] / 10)
+            self.back_voltage = float(self.roboclaw.ReadMainBatteryVoltage(self.backaddr)[1] / 10)
+            self.back_logic = float(self.roboclaw.ReadLogicBatteryVoltage(self.frontaddr)[1] / 10)
+            self.digger_voltage = float(self.roboclaw.ReadMainBatteryVoltage(self.diggeraddr)[1] / 10)
+            self.digger_logic = float(self.roboclaw.ReadLogicBatteryVoltage(self.diggeraddr)[1] / 10)
+            # read currents
+            self.front_currents = self.roboclaw.ReadCurrents(self.frontaddr)
+            self.back_currents = self.roboclaw.ReadCurrents(self.backaddr)
+            self.digger_currents = self.roboclaw.ReadCurrents(self.diggeraddr)
+            self._have_read_vitals = True
         except OSError as e:
             rospy.logwarn("Diagnostics OSError: %d", e.errno)
             rospy.logdebug(e)
+
+    def pub_vitals(self, stat):
+        """Publish vitals (called by diagnostics updater)"""
+        if self._have_read_vitals:
+            stat.summary(self.statefront,  self.messagefront)
+            stat.summary(self.stateback,   self.messageback)
+            stat.summary(self.statedigger, self.messagedigger)
+            stat.add("Front Main Batt V:", self.front_voltage)
+            stat.add("Front Logic Batt V:", self.front_logic)
+            stat.add("Front Left Current:", float(self.front_currents[1] / 100))
+            stat.add("Front Right Current:", float(self.front_currents[2] / 100))
+            stat.add("Back Left Current:", float(self.back_currents[1] / 100))
+            stat.add("Back Right Current:", float(self.back_currents[2] / 100))
+            stat.add("Digger Left Current:", float(self.digger_currents[1] / 100))
+            stat.add("Digger Right Current:", float(self.digger_currents[2] / 100))
         return stat
 
     def shutdown(self):
 	"""Handle shutting down the node"""
         rospy.loginfo("Shutting down")
-        if hasattr(self, "sub"):
-            self.sub.unregister() # so it doesn't get called after we're dead
+        # so they don't get called after we're dead
+        if hasattr(self, "cmd_vel_sub"):
+            self.cmd_vel_sub.unregister() 
+        if hasattr(self, "digger_sub"):
+            self.digger_sub.unregister()
+
+        # stop motors
         try:
             self.roboclaw.ForwardM1(self.frontaddr, 0)
             self.roboclaw.ForwardM2(self.frontaddr, 0)
             self.roboclaw.ForwardM1(self.backaddr, 0)
             self.roboclaw.ForwardM2(self.backaddr, 0)
+            self.roboclaw.ForwardM1(self.diggeraddr, 0)
+            self.roboclaw.ForwardM2(self.diggeraddr, 0)
             rospy.loginfo("Closed Roboclaw serial connection")
         except OSError:
             rospy.logerr("Shutdown did not work trying again")
@@ -355,9 +434,11 @@ class Node:
                 self.roboclaw.ForwardM2(self.frontaddr, 0)
                 self.roboclaw.ForwardM1(self.backaddr, 0)
                 self.roboclaw.ForwardM2(self.backaddr, 0)
+                self.roboclaw.ForwardM1(self.diggeraddr, 0)
+                self.roboclaw.ForwardM2(self.diggeraddr, 0)
             except OSError as e:
-                rospy.logerr("Could not shutdown motors!!!!")
-                rospy.logdebug(e)
+                rospy.logfatal("Could not shutdown motors!!!!")
+                rospy.logfatal(e)
         #quit()
 
 if __name__ == "__main__":
