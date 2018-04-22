@@ -6,7 +6,7 @@ import diagnostic_updater
 from roboclaw_driver.roboclaw_driver import Roboclaw
 import rospy
 import tf
-from standard_msgs.msg import Float64
+from std_msgs.msg import Float64
 from geometry_msgs.msg import Quaternion, Twist
 from nav_msgs.msg import Odometry
 import threading
@@ -271,19 +271,26 @@ class Node(object):
             # read encoder data and publish odom
             self.front_enc1, self.front_enc2 = None, None
             self.back_enc1, self.back_enc2 = None, None
+            self.digger_current1, self.digger_current2 = None, None
 
             try:
+                _, self.digger_current1, _ = self.roboclaw.ReadEncM1(self.diggeraddr)
+                _, self.digger_current2, _ = self.roboclaw.ReadEncM2(self.diggeraddr)
                 _, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
                 _, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
                 _, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
                 _, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
-            except OSError as e:
-                rospy.logwarn("ReadEnc OSError: %d", e.errno)
-                rospy.logdebug(e)
-            if self.front_enc1 is not None:
-                rospy.logdebug("Front Encoders %d %d" % (self.front_enc1, self.front_enc2))
-                rospy.logdebug("Back Encoders %d %d" % (self.back_enc1, self.back_enc2))
+            except (ValueError,OSError) as e:
+                rospy.logwarn("Error when trying to read encoder value: %s", e)
+
+            if self.digger_current1 is not None:
+                rospy.logdebug("Digger Current %d %d", self.digger_current1, self.digger_current2)
+
+            if self.back_enc1 is not None:
+                rospy.logdebug("Front Encoders %d %d", self.front_enc1, self.front_enc2)
+                rospy.logdebug("Back Encoders %d %d", self.back_enc1, self.back_enc2)
                 self.encodm.update_publish(self.front_enc1, self.front_enc2, self.back_enc1, self.back_enc2)
+
 
             # publish diagnostics
             self._read_vitals()

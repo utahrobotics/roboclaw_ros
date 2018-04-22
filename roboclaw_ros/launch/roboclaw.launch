@@ -3,9 +3,10 @@
     <arg name="dev" default="/dev/ROBOCLAW"/>
     <arg name="baudrate" default="115200"/>
     <arg name="timeout" default="1.0"/>
+    <!-- TODO: fix switch -->
     <arg name="frontaddr" default="128"/>
     <arg name="backaddr" default="129"/>
-    <arg name="digger" default="130"/>
+    <arg name="diggeraddr" default="130"/>
     <arg name="max_speed" default="2.0"/>
     <arg name="ticks_per_meter" default="104000"/>
     <arg name="base_width" default="0.92"/>
@@ -21,8 +22,10 @@
     <node pkg="roboclaw_ros" type="roboclaw_ros.py" name="roboclaw_ros" respawn="$(arg respawn)" respawn_delay="$(arg respawn_delay)" output="screen">
         <param name="~dev" value="$(arg dev)"/>
         <param name="~baudrate" value="$(arg baudrate)"/>
+        <param name="~timeout" value="$(arg timeout)"/>
         <param name="~frontaddr" value="$(arg frontaddr)"/>
         <param name="~backaddr" value="$(arg backaddr)"/>
+        <param name="~diggeraddr" value="$(arg diggeraddr)"/>
         <param name="~max_speed" value="$(arg max_speed)"/>
         <param name="~ticks_per_meter" value="$(arg ticks_per_meter)"/>
         <param name="~base_width" value="$(arg base_width)"/>
