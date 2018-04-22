@@ -207,6 +207,9 @@ class Node(object):
         try:
             version = self.roboclaw.ReadVersion(self.diggeraddr)
             rospy.logdebug("Digger Version "+ str(repr(version[1])))
+            self.roboclaw.SetM1EncoderMode(self.diggeraddr, 1)
+            self.roboclaw.SetM2EncoderMode(self.diggeraddr, 1)
+            rospy.logdebug("Digger Encoder Mode "+ str(self.roboclaw.ReadEncoderModes(self.diggeraddr)))
         except Exception as e:
             rospy.logwarn("Problem getting digger roboclaw version")
             rospy.logdebug(e)
@@ -216,6 +219,9 @@ class Node(object):
         self.roboclaw.ResetEncoders(self.frontaddr)
         self.roboclaw.SpeedM1M2(self.backaddr, 0, 0)
         self.roboclaw.ResetEncoders(self.backaddr)
+        # TODO: test resetting 
+        #self.roboclaw.SpeedM1M2(self.diggeraddr, 0, 0)
+        #self.roboclaw.ResetEncoders(self.diggeraddr)
 
         self.LINEAR_MAX_SPEED = float(rospy.get_param("~linear/x/max_velocity"))
         self.ANGULAR_MAX_SPEED = float(rospy.get_param("~angular/z/max_velocity"))
@@ -236,6 +242,7 @@ class Node(object):
         rospy.logdebug("baudrate %d", self.baudrate)
         rospy.logdebug("front address %d", self.frontaddr)
         rospy.logdebug("back address %d", self.backaddr)
+        rospy.logdebug("digger address %d", self.diggeraddr)
         rospy.logdebug("max_speed %f", self.LINEAR_MAX_SPEED)
         rospy.logdebug("ticks_per_meter %f", self.TICKS_PER_METER)
         rospy.logdebug("base_width %f", self.BASE_WIDTH)
@@ -273,13 +280,16 @@ class Node(object):
             self.back_enc1, self.back_enc2 = None, None
             self.digger_current1, self.digger_current2 = None, None
 
+            print(self.roboclaw.ReadEncM1(self.diggeraddr))
+            print(self.roboclaw.ReadEncM2(self.diggeraddr))
+
             try:
                 _, self.digger_current1, _ = self.roboclaw.ReadEncM1(self.diggeraddr)
                 _, self.digger_current2, _ = self.roboclaw.ReadEncM2(self.diggeraddr)
-                _, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
-                _, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
-                _, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
-                _, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
+                #_, self.front_enc1, _ = self.roboclaw.ReadEncM1(self.frontaddr) # returns (status, ENCODER, crc) -> (_, enc, _)
+                #_, self.front_enc2, _ = self.roboclaw.ReadEncM2(self.frontaddr)
+                #_, self.back_enc1, _ = self.roboclaw.ReadEncM1(self.backaddr)
+                #_, self.back_enc2, _ = self.roboclaw.ReadEncM2(self.backaddr)
             except (ValueError,OSError) as e:
                 rospy.logwarn("Error when trying to read encoder value: %s", e)
 
@@ -301,7 +311,7 @@ class Node(object):
     def cmd_digger_callback(self, cmd):
         """Set digger command based on the float message in range (-1, 1)"""
         self.last_digger_cmd_time = rospy.Time.now()
-        rospy.logdebug("Digger message: %d", cmd.data)
+        rospy.logdebug("Digger message: %f", cmd.data)
         # Scale to motor pwm and clip
         motor_cmd = int(cmd.data * 127)
         motor_cmd = clip(motor_cmd, -127, 127)
@@ -396,6 +406,11 @@ class Node(object):
             self.back_currents = self.roboclaw.ReadCurrents(self.backaddr)
             self.digger_currents = self.roboclaw.ReadCurrents(self.diggeraddr)
             self._have_read_vitals = True
+
+            #rospy.logdebug("Front V %d", self.front_voltage)
+            #rospy.logdebug("Back V %d", self.back_voltage)
+            #rospy.logdebug("Digger V %d", self.digger_voltage)
+
         except OSError as e:
             rospy.logwarn("Diagnostics OSError: %d", e.errno)
             rospy.logdebug(e)
