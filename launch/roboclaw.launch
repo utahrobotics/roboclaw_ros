@@ -18,7 +18,7 @@
     <arg name="respawn_delay" default="2" />
     <arg name="run_diag" default="false" />
 
-    <node pkg="roboclaw_ros" type="roboclaw_ros.py" name="roboclaw_ros" respawn="$(arg respawn)" respawn_delay="$(arg respawn_delay)" output="screen">
+    <node pkg="roboclaw_ros" type="roboclaw_node.py" name="roboclaw_node" respawn="$(arg respawn)" respawn_delay="$(arg respawn_delay)" output="screen">
         <param name="~dev" value="$(arg dev)"/>
         <param name="~baudrate" value="$(arg baudrate)"/>
         <param name="~timeout" value="$(arg timeout)"/>

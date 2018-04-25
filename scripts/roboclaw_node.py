@@ -163,8 +163,8 @@ class Node(object):
         self.curr_drive1_cmd = 0 
         self.curr_drive2_cmd = 0
 
-        #rospy.init_node("roboclaw_ros")
-        rospy.init_node("roboclaw_ros", log_level=rospy.DEBUG)
+        #rospy.init_node("roboclaw_node")
+        rospy.init_node("roboclaw_node", log_level=rospy.DEBUG)
         rospy.on_shutdown(self.shutdown)
         rospy.loginfo("Connecting to roboclaw")
         self.dev = rospy.get_param("~dev")
