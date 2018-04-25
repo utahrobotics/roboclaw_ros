@@ -6,7 +6,7 @@ import diagnostic_updater
 from roboclaw_driver.roboclaw_driver import Roboclaw
 import rospy
 import tf
-from std_msgs.msg import Float64
+from std_msgs.msg import Bool, Float64
 from geometry_msgs.msg import Quaternion, Twist
 from nav_msgs.msg import Odometry
 import threading
@@ -156,7 +156,7 @@ class Node(object):
     """ Class for running roboclaw ros node for 2 motors in a diff drive setup"""
     def __init__(self):
         """init variables and ros stuff"""
-        self._has_showed_message = False # flag to not spam logging
+        self._have_shown_message = False # flag to not spam logging
         self._have_read_vitals = False # flag to check when vitals have been read
 
         # ints in [-127,127] that get sent to roboclaw to drive forward or backward 
@@ -188,6 +188,7 @@ class Node(object):
         self.updater.setHardwareID("Roboclaw")
         self.updater.add(diagnostic_updater.FunctionDiagnosticTask("Vitals", self.pub_vitals))
 
+        # TODO (p1): we probably just want to crash here or something if we don't have a connection
         try:
             version = self.roboclaw.ReadVersion(self.frontaddr)
             rospy.logdebug("Front Version " + str(repr(version[1])))
@@ -232,9 +233,12 @@ class Node(object):
         self.encodm = EncoderOdom(self.TICKS_PER_METER, self.BASE_WIDTH)
         self.last_vel_cmd_time = rospy.Time.now()
         self.last_digger_cmd_time = rospy.Time.now()
+        self.last_digger_extended_time = rospy.Time.now()
+        self.digger_extended = False
 
         self.cmd_vel_sub = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=1)
         self.digger_sub = rospy.Subscriber("/cmd_digger", Float64, self.cmd_digger_callback, queue_size=1)
+        self.digger_extended_sub = rospy.Subscriber("/digger_extended", Bool, self.digger_extended_callback, queue_size=1)
 
         rospy.sleep(1) # wait for things to initialize
 
@@ -258,18 +262,18 @@ class Node(object):
             if (rospy.Time.now() - self.last_vel_cmd_time).to_sec() > self.TIMEOUT:
                 self.curr_drive1_cmd = 0
                 self.curr_drive2_cmd = 0
-                if (not self._has_showed_message):
+                if (not self._have_shown_message):
                     rospy.loginfo("Did not get drive command for %d second, stopping", self.TIMEOUT)
-                    self._has_showed_message = True
+                    self._have_shown_message = True
             else:
-                self._has_showed_message = False
+                self._have_shown_message = False
             if (rospy.Time.now() - self.last_digger_cmd_time).to_sec() > self.TIMEOUT:
                 self.curr_digger_cmd = 0
-                if (not self._has_showed_message):
+                if (not self._have_shown_message):
                     rospy.loginfo("Did not get digger command for %d second, stopping", self.TIMEOUT)
-                    self._has_showed_message = True
+                    self._have_shown_message = True
             else:
-                self._has_showed_message = False
+                self._have_shown_message = False
 
             # send actual commands to the devices (the values to send are generally set in sub callbacks)
             self._send_drive_cmd() 
@@ -308,6 +312,10 @@ class Node(object):
 
             r_time.sleep()
 
+    def digger_extended_callback(self, msg):
+        self.digger_extended = msg.data
+        self.last_digger_extended_time = rospy.Time.now()
+
     def cmd_digger_callback(self, cmd):
         """Set digger command based on the float message in range (-1, 1)"""
         self.last_digger_cmd_time = rospy.Time.now()
@@ -319,11 +327,22 @@ class Node(object):
 
     def _send_digger_cmd(self):
         """Sends the current digger command to the Roboclaw devices over Serial"""
+
+        # If the linear actuator is not extended, or we haven't heard from it in a while,
+        # set the digger speed to 0
+        if self.digger_extended and ( (rospy.Time.now() - self.last_digger_extended_time).to_sec < self.timeout):
+            self.curr_digger_cmd = self.curr_digger_cmd
+        else:
+            self.curr_digger_cmd = 0
+
+        # TODO: need to check the directionality of these when we hook up everything
         try:
             if self.curr_digger_cmd >= 0:
                 self.roboclaw.ForwardM1(self.diggeraddr, self.curr_digger_cmd)
+                self.roboclaw.ForwardM2(self.diggeraddr, self.curr_digger_cmd)
             else:
                 self.roboclaw.BackwardM1(self.diggeraddr, -self.curr_digger_cmd)
+                self.roboclaw.BackwardM2(self.diggeraddr, -self.curr_digger_cmd)
         except OSError as e:
             rospy.logwarn("Roboclaw OSError: %d", e.errno)
             rospy.logdebug(e)
