@@ -237,7 +237,7 @@ class Node(object):
         self.digger_extended = False
 
         self.cmd_vel_sub = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=1)
-        self.digger_sub = rosp.Subscriber("/digger_spin", Float32, self.digger_spin_callback, queue_size=1)
+        self.digger_sub = rosp.Subscriber("/digger_spin/cmd", Float32, self.digger_spin_callback, queue_size=1)
         self.digger_extended_sub = rospy.Subscriber("/digger_extended", Bool, self.digger_extended_callback, queue_size=1)
 
         rospy.sleep(1) # wait for things to initialize
