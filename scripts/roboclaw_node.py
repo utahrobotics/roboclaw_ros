@@ -6,7 +6,7 @@ import diagnostic_updater
 from roboclaw_driver.roboclaw_driver import Roboclaw
 import rospy
 import tf
-from std_msgs.msg import Bool, Float64
+from std_msgs.msg import Bool, Float32
 from geometry_msgs.msg import Quaternion, Twist
 from nav_msgs.msg import Odometry
 import threading
@@ -220,7 +220,7 @@ class Node(object):
         self.roboclaw.ResetEncoders(self.frontaddr)
         self.roboclaw.SpeedM1M2(self.backaddr, 0, 0)
         self.roboclaw.ResetEncoders(self.backaddr)
-        # TODO: test resetting 
+        # TODO (p2): test resetting 
         #self.roboclaw.SpeedM1M2(self.diggeraddr, 0, 0)
         #self.roboclaw.ResetEncoders(self.diggeraddr)
 
@@ -237,7 +237,7 @@ class Node(object):
         self.digger_extended = False
 
         self.cmd_vel_sub = rospy.Subscriber("/cmd_vel", Twist, self.cmd_vel_callback, queue_size=1)
-        self.digger_sub = rospy.Subscriber("/cmd_digger", Float64, self.cmd_digger_callback, queue_size=1)
+        self.digger_sub = rosp.Subscriber("/digger_spin", Float32, self.digger_spin_callback, queue_size=1)
         self.digger_extended_sub = rospy.Subscriber("/digger_extended", Bool, self.digger_extended_callback, queue_size=1)
 
         rospy.sleep(1) # wait for things to initialize
@@ -316,7 +316,7 @@ class Node(object):
         self.digger_extended = msg.data
         self.last_digger_extended_time = rospy.Time.now()
 
-    def cmd_digger_callback(self, cmd):
+    def digger_spin_callback(self, cmd):
         """Set digger command based on the float message in range (-1, 1)"""
         self.last_digger_cmd_time = rospy.Time.now()
         rospy.logdebug("Digger message: %f", cmd.data)
