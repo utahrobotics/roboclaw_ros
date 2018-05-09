@@ -11,10 +11,9 @@
     <arg name="base_width" default="0.92"/>
     <arg name="linear_max_vel" default="2.0"/>
     <arg name="angular_max_vel" default="2.0"/>
-    <arg name="accel" default="5"/> <!-- roboclaw default is 655360 -->
 
     <!-- <rosparam file="$(find roboclaw_ros)/config/control.yaml" command="load"/> -->
-    <arg name="respawn" default="true" />
+    <arg name="respawn" default="false" />
     <arg name="respawn_delay" default="2" />
     <arg name="run_diag" default="false" />
 
@@ -30,7 +29,6 @@
         <param name="~base_width" value="$(arg base_width)"/>
         <param name="~linear/x/max_velocity" value="$(arg linear_max_vel)"/>
         <param name="~angular/z/max_velocity" value="$(arg angular_max_vel)"/>
-        <param name="~accel" value="$(arg accel)"/>
     </node>
 <!--
     <node if="$(arg run_diag)" pkg="diagnostic_aggregator" type="aggregator_node"

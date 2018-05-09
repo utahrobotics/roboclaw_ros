@@ -21,23 +21,6 @@ def clip(val, minval, maxval):
     """Clip commands to within bounds e.g., (-127,127)"""
     return max(min(val, maxval), minval)
 
-# diagnostics error msg
-ERRORS = {0x0000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal"), 0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
-               0x0002: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 over current"),
-               0x0004: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Emergency Stop"),
-               0x0008: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature1"),
-               0x0010: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature2"),
-               0x0020: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Main batt voltage high"),
-               0x0040: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage high"),
-               0x0080: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage low"),
-               0x0100: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 driver fault"),
-               0x0200: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 driver fault"),
-               0x0400: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage high"),
-               0x0800: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage low"),
-               0x1000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature1"),
-               0x2000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature2"),
-               0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
-               0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
 
 class EncoderOdom(object):
     def __init__(self, ticks_per_meter, base_width):
@@ -156,14 +139,13 @@ class Node(object):
     def __init__(self):
         """init variables and ros stuff"""
         self._have_shown_message = False # flag to not spam logging
-        self._have_read_vitals = False # flag to check when vitals have been read
 
         # ints in [-127,127] that get sent to roboclaw to drive forward or backward 
         self.curr_drive1_cmd = 0 
         self.curr_drive2_cmd = 0
 
         #rospy.init_node("roboclaw_node")
-        rospy.init_node("roboclaw_node", log_level=rospy.DEBUG)
+        rospy.init_node("roboclaw_node", log_level=rospy.INFO)
         rospy.on_shutdown(self.shutdown)
         rospy.loginfo("Connecting to roboclaw")
         self.dev = rospy.get_param("~dev")
@@ -171,17 +153,10 @@ class Node(object):
         self.frontaddr = int(rospy.get_param("~frontaddr"))
         self.backaddr = int(rospy.get_param("~backaddr"))
         self.diggeraddr = int(rospy.get_param("~diggeraddr"))
-        self.accel = int(rospy.get_param("~accel"))
 
-        # open roboclaw device connection
+        # open roboclaw serial device connection
         self.roboclaw = Roboclaw(self.dev, self.baudrate) 
-        # set acceleration limits (default is 655360, we found 100000 to be decent)_
-        #self.roboclaw.SetM1DefaultAccel(self.frontaddr, self.accel) 
-        #self.roboclaw.SetM2DefaultAccel(self.frontaddr, self.accel)
-        #self.roboclaw.SetM1DefaultAccel(self.backaddr, self.accel)
-        #self.roboclaw.SetM2DefaultAccel(self.backaddr, self.accel)
-        #self.roboclaw.SetM1DefaultAccel(self.diggeraddr, self.accel)
-        #self.roboclaw.SetM2DefaultAccel(self.diggeraddr, self.accel)
+
         # diagnostics
         self.updater = diagnostic_updater.Updater()
         self.updater.setHardwareID("Roboclaw")
@@ -283,11 +258,6 @@ class Node(object):
             self.back_enc1, self.back_enc2 = None, None
             self.digger_current1, self.digger_current2 = None, None
 
-            #print(self.roboclaw.ReadEncM1(self.frontaddr))
-            #print(self.roboclaw.ReadEncM2(self.frontaddr))
-            #print(self.roboclaw.ReadEncM1(self.backaddr))
-            #print(self.roboclaw.ReadEncM2(self.backaddr))
-
             try:
                 pass
                 _, self.digger_current1, _ = self.roboclaw.ReadEncM1(self.diggeraddr)
@@ -302,7 +272,7 @@ class Node(object):
             if self.digger_current1 is not None:
                 rospy.logdebug("Digger Current %d %d", self.digger_current1, self.digger_current2)
 
-            if self.back_enc1 is not None:
+            if self.front_enc1 is not None and self.front_enc2 is not None and self.back_enc1 and self.back_enc2 is not None:
                 rospy.logdebug("Front Encoders %d %d", self.front_enc1, self.front_enc2)
                 rospy.logdebug("Back Encoders %d %d", self.back_enc1, self.back_enc2)
                 self.encodm.update_publish(self.front_enc1, self.front_enc2, self.back_enc1, self.back_enc2)
@@ -329,7 +299,6 @@ class Node(object):
 
     def _send_digger_cmd(self):
         """Sends the current digger command to the Roboclaw devices over Serial"""
-
         # TODO: test this code more thoroughly 
 
         # If the linear actuator is not extended, or we haven't heard from it in a while,
@@ -402,6 +371,34 @@ class Node(object):
             rospy.logdebug(e)
 
 
+    def _decode_error(self, bits):
+        ERRORS = {0x0001: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 over current"),
+               0x0002: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 over current"),
+               0x0004: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Emergency Stop"),
+               0x0008: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature1"),
+               0x0010: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Temperature2"),
+               0x0020: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Main batt voltage high"),
+               0x0040: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage high"),
+               0x0080: (diagnostic_msgs.msg.DiagnosticStatus.ERROR, "Logic batt voltage low"),
+               0x0100: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M1 driver fault"),
+               0x0200: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "M2 driver fault"),
+               0x0400: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage high"),
+               0x0800: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Main batt voltage low"),
+               0x1000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature1"),
+               0x2000: (diagnostic_msgs.msg.DiagnosticStatus.WARN, "Temperature2"),
+               0x4000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M1 home"),
+               0x8000: (diagnostic_msgs.msg.DiagnosticStatus.OK, "M2 home")}
+
+        # no error
+        if bits == 0x0000:
+            return [(diagnostic_msgs.msg.DiagnosticStatus.OK, "Normal")]
+
+        summary = []
+        for ebit in ERRORS:
+            if bits and ebits:
+                summary.append(ERRORS[ebits])
+        return summary
+
     def _read_vitals(self):
         """Check battery voltage and temperatures from roboclaw"""
         try:
@@ -413,9 +410,10 @@ class Node(object):
             rospy.logdebug(e)
             return
 
-        self.statefront,  self.messagefront = ERRORS[statusfront]
-        self.stateback,   self.messageback = ERRORS[statusback]
-        self.statedigger, self.messagedigger = ERRORS[statusdigger]
+        self.state_fronts = self._decode_error(statusfront)
+        self.state_backs = self._decode_error(statusback)
+        self.state_digger = self._decode_error(statusdigger)
+
         try:
             # read main and logic voltages
             self.front_voltage = float(self.roboclaw.ReadMainBatteryVoltage(self.frontaddr)[1] / 10)
@@ -428,11 +426,6 @@ class Node(object):
             self.front_currents = self.roboclaw.ReadCurrents(self.frontaddr)
             self.back_currents = self.roboclaw.ReadCurrents(self.backaddr)
             self.digger_currents = self.roboclaw.ReadCurrents(self.diggeraddr)
-            self._have_read_vitals = True
-
-            #rospy.logdebug("Front V %d", self.front_voltage)
-            #rospy.logdebug("Back V %d", self.back_voltage)
-            #rospy.logdebug("Digger V %d", self.digger_voltage)
 
         except OSError as e:
             rospy.logwarn("Diagnostics OSError: %d", e.errno)
@@ -440,18 +433,28 @@ class Node(object):
 
     def pub_vitals(self, stat):
         """Publish vitals (called by diagnostics updater)"""
-        if self._have_read_vitals:
-            stat.summary(self.statefront,  self.messagefront)
-            stat.summary(self.stateback,   self.messageback)
-            stat.summary(self.statedigger, self.messagedigger)
-            stat.add("Front Main Batt V:", self.front_voltage)
-            stat.add("Front Logic Batt V:", self.front_logic)
-            stat.add("Front Left Current:", float(self.front_currents[1] / 100))
-            stat.add("Front Right Current:", float(self.front_currents[2] / 100))
-            stat.add("Back Left Current:", float(self.back_currents[1] / 100))
-            stat.add("Back Right Current:", float(self.back_currents[2] / 100))
-            stat.add("Digger Left Current:", float(self.digger_currents[1] / 100))
-            stat.add("Digger Right Current:", float(self.digger_currents[2] / 100))
+        for front_state, front_message in self.state_fronts:
+            stat.summary(front_state, front_message)
+        for back_state, back_message in self.state_backs:
+            stat.summary(back_state, back_message)
+        for digger_state, digger_message in self.state_digger:
+            stat.summary(digger_state, digger_message)
+
+        stat.add("Front Main Batt V:", self.front_voltage)
+        stat.add("Front Logic Batt V:", self.front_logic)
+
+        stat.add("Back Main Batt V:", self.back_voltage)
+        stat.add("Back Logic Batt V:", self.back_logic)
+
+        stat.add("Digger Main Batt V:", self.digger_voltage)
+        stat.add("Digger Logic Batt V:", self.digger_logic)
+
+        stat.add("Front Left Current:", float(self.front_currents[1] / 100))
+        stat.add("Front Right Current:", float(self.front_currents[2] / 100))
+        stat.add("Back Left Current:", float(self.back_currents[1] / 100))
+        stat.add("Back Right Current:", float(self.back_currents[2] / 100))
+        stat.add("Digger Left Current:", float(self.digger_currents[1] / 100))
+        stat.add("Digger Right Current:", float(self.digger_currents[2] / 100))
         return stat
 
     def shutdown(self):
